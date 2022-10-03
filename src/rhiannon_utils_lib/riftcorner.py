@@ -1,7 +1,10 @@
 import copy
 import logging
 import os
+from types import NoneType
+from typing import Dict, List, Union
 
+import configargparse as cfg
 import corner
 import matplotlib.lines as mpllines
 import matplotlib.pyplot as plt
@@ -9,10 +12,12 @@ import numpy as np
 import pandas as pd
 from bilby.gw.conversion import generate_mass_parameters
 
+from .fileutils import get_suffixed_path, write_altered_config
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-
+# Map RIFT names to bilby names
 _rift_to_bilby = {
     "m1": "mass_1",
     "m2": "mass_2",
@@ -34,6 +39,7 @@ _rift_to_bilby = {
     "dist": "luminosity_distance",
 }
 
+# Map bilby names to latex representations
 _bilby_to_tex = {
     "mass_1": "$m_1$",
     "mass_2": "$m_2$",
@@ -56,30 +62,86 @@ _bilby_to_tex = {
 }
 
 
-def get_posterior_dataframe(posterior_file):
+def get_posterior_dataframe(posterior_file: str) -> pd.DataFrame:
+    """
+    Get the posterior dataframe from a posteriors_samples.dat file.
+    #TODO Make this more flexible - may involve expanding the above.
+
+    Parameters
+    ----------
+    posterior_file : str
+        The path to the file to read.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        The dataframe representing the data in the file
+        using bilby names where possible.
+    """
+    # Get the header, process it as necessary
     with open(posterior_file, "r") as f:
         header = f.readline()
     header = header.replace("#", "").replace("  ", " ").strip().split(" ")
+    # Get the corresponding bilby header, mapping to bilby names where possible
     bilby_header = [
         (lambda x: _rift_to_bilby[x] if (x in _rift_to_bilby.keys()) else x)(x)
         for x in header
     ]
+    # Read the data file
     return pd.read_csv(
         posterior_file, sep=" ", names=bilby_header, header=None, skiprows=1
     )
 
 
-def make_results_dict(posterior_file_paths_list, posterior_names, relative_rundir=""):
+def make_results_dict(
+    posterior_file_paths_list: List[str],
+    posterior_names: List[str],
+    relative_dir="",
+) -> Dict[str, pd.DataFrame]:
+    """
+    For a list of paths and corresponding names, read them in and make a dict of dataframes
+
+    Parameters
+    ----------
+    posterior_file_paths_list : list[str]
+        A list of paths to posterior_samples.dat files.
+        May be relative, in which case relative_dir is prepended,
+        with user home expanded out
+    posterior_names : list[str]
+        A list of the names to give the posteriors.
+    relative_dir : str
+        A path to prepend to all the file names.
+        E.g. can be the directory they are all located,
+        then only their names need be passed.
+
+    Returns
+    -------
+    posterior_dataframes : dict[str, pd.DataFrame]
+    """
     posterior_dataframes = dict()
+    # For each posterior file, get the correct path, get the dataframe, assign by name
     for ii, posterior_file in enumerate(posterior_file_paths_list):
-        path_to_file = os.path.expanduser(os.path.join(relative_rundir, posterior_file))
+        path_to_file = os.path.expanduser(os.path.join(relative_dir, posterior_file))
         posterior_dataframes[posterior_names[ii]] = get_posterior_dataframe(
             path_to_file
         )
     return posterior_dataframes
 
 
-def get_ile_points(composite_path):
+def get_ile_points(composite_path: str) -> pd.DataFrame:
+    """
+    Read the ILE points from a composite file
+
+    Parameters
+    ----------
+    composite_path : str
+        The path to the composite (.composite or all.net) file
+
+    Returns
+    -------
+    dataframe : pd.DataFrame
+
+    """
     data = np.loadtxt(composite_path, delimiter=" ")
     dataframe = pd.DataFrame()
     dataframe["mass_1"] = data[:, 1]
@@ -96,14 +158,33 @@ def get_ile_points(composite_path):
 
 
 def plot_multiple_RIFT(
-    results_dict,
-    parameters_to_plot,
-    ile_points=None,
-    lnL_span_cut=None,
-    title=None,
+    results_dict: Dict[str, pd.DataFrame],
+    parameters_to_plot: List[str],
+    ile_points: Union[NoneType, pd.DataFrame] = None,
+    lnL_span_cut: Union[NoneType, float] = None,
+    title: Union[NoneType, str] = None,
     **kwargs,
-):
-    # Setup kwargs for plotting - use Bilby defaults
+) -> plt.figure:
+    """
+    Using posteriors and optionally grid points, produce a corner plot
+
+    Parameters
+    ----------
+    results_dict : Dict[str, pd.DataFrame]
+        A dict which maps the name of the posterior (on the legend)
+        to the dataframe containing that posterior.
+    parameters_to_plot : List[str]
+        The list of parameters to plot on the corner plot.
+        Naturally, all posteriors must contain these parameters.
+    ile_points : Union[NoneType, pd.DataFrame]
+        Optionally, the ILE points to plot on the corner.
+    lnL_span_cut : Union[NoneType, float]
+        Optionally, the range of lnL's to plot in color scale (all others are grayed).
+        If None all grid points are colored, this may make the scale uninformative.
+    title : Union[NoneType, str]
+        Optionally, the title of the plot.
+    """
+    # Setup kwargs for plotting - in most cases use Bilby defaults
     defaults_kwargs = dict(
         bins=50,
         smooth=0.9,
@@ -111,12 +192,10 @@ def plot_multiple_RIFT(
         title_kwargs=dict(fontsize=16),
         truth_color="tab:orange",
         quantiles=[],
-        # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
         levels=(0.90,),
         plot_density=False,
         plot_datapoints=False,
         no_fill_contours=True,
-        # fill_contours_with_hatches=True,
         max_n_ticks=3,
         hist_kwargs=dict(density=True),
         hatch_base="/",
@@ -138,8 +217,8 @@ def plot_multiple_RIFT(
         # Sorry for the warnings
         for param in parameters_to_plot:
             plotting_df[_bilby_to_tex[param]] = results_dict[posterior_name][param]
-        # Get default color based on how many posteriors have already been plotted
 
+        # Get default color based on how many posteriors have already been plotted
         c = f"C{ii}"
         # If color is provided use it, and propagate to 1d histograms
         # Else use our default
@@ -158,14 +237,18 @@ def plot_multiple_RIFT(
             corner_fig = corner.corner(
                 plotting_df, label=posterior_name, fig=corner_fig, **kwargs_to_use
             )
+        # Do stuff to help form the legend
         lines.append(mpllines.Line2D([0], [0], color=kwargs_to_use["color"]))
         labels.append(posterior_name)
 
     ndim = len(parameters_to_plot)
 
+    # Make the legend
     figaxes = corner_fig.get_axes()
     figaxes[ndim - 1].legend(lines, labels, prop={"size": "x-large"})
-    figaxes[ndim - 2].set_title(title, size="x-large")
+    # Optionally add a title - tends to be pretty ugly.
+    if title is not None:
+        figaxes[ndim - 2].set_title(title, size="x-large")
 
     # If composite points are provided plot them
     if ile_points is not None:
@@ -174,12 +257,14 @@ def plot_multiple_RIFT(
         ile_points.sort_values("lnL", inplace=True)
         # Make a copy of lnLs so our manipulations don't damage it
         color_scale_data = copy.deepcopy(ile_points["lnL"].array)
+        # Get vmax, and either fetch vmin or construct an lnL span
         vmax = color_scale_data.max()
         if lnL_span_cut is None:
             vmin = color_scale_data.min()
         else:
             vmin = vmax - lnL_span_cut
 
+        # Handle color stuff
         cmap = plt.get_cmap("viridis")
         cmap.set_under("gray")
         norm = plt.Normalize(vmin, vmax)
@@ -191,13 +276,14 @@ def plot_multiple_RIFT(
             for jj, param_jj in enumerate(parameters_to_plot):
                 # jj is the x axis, left to right
                 if ii == jj or jj > ii:
-                    # This is the upper corner and the 1d histograms
+                    # This is the upper right triangle and the 1d histograms
                     pass
                 else:
-                    # This
+                    # This is the lower left triangle
                     array_1 = ile_points[param_jj]
                     array_2 = ile_points[param_ii]
 
+                    # Plot the points
                     axes[ii, jj].scatter(
                         array_1,
                         array_2,
@@ -206,14 +292,103 @@ def plot_multiple_RIFT(
                         s=1 / 16,
                         vmin=vmin,
                     )
+        # Make the colorbar
         cbar = plt.colorbar(sm, ax=axes)
         cbar.set_label(r"Grid Point $\ln \mathcal{L}$", size="x-large")
     return corner_fig
 
 
-def parser(config_path):
-    import configargparse as cfg
-
+def parse_corner_args(config_path):
     parser = cfg.ArgumentParser()
 
-    return parser
+    file_parser = parser.add_argument_group(
+        title="File Arguments",
+        description="Arguments describing paths of files to use, and names for posteriors",
+    )
+    file_parser.add_argument(
+        "--posterior-files",
+        action="append",
+        help="A path (absolute or relative - see relative dir) to the posterior file(s) to use",
+    )
+    file_parser.add_argument(
+        "--relative-dir",
+        type=str,
+        help="The relative directory for all of the posteriors (e.g. the run directory)",
+        default="",
+    )
+    file_parser.add_argument(
+        "--composite-file",
+        default=None,
+        help="Optionally, the path to a file with the composite points",
+    )
+    file_parser.add_argument(
+        "--output-dir",
+        default="~",
+        help="The output directory for the corner plot,\
+        and a config file updated with any command line arguments passed\
+        If this directory already exists, a numerical suffix will be appended\
+        (e.g. output_dir --> output_dir_1, output_dir_1 --> output_dir_2)"
+        # TODO could also add other stuff to this directory?
+        # As many plots as the heart desires...
+    )
+
+    plot_parser = parser.add_argument_group(
+        title="Plot Arguments", description="Arguments for plotting"
+    )
+    plot_parser.add_argument(
+        "--posterior-names",
+        action="append",
+        help="",
+    )
+    plot_parser.add_argument(
+        "--lnL-span-cut",
+        type=float,
+        default=None,
+        help="If passed, then color scale from (max lnL - cut, max lnL), else go min to max",
+    )
+    plot_parser.add_argument(
+        "--param-to-plot",
+        action="append",
+        help="Pass multiple times for the parameters to plot on the corner plot",
+    )
+    plot_parser.add_argument(
+        "--title",
+        default=None,
+        help="If passed will put title onto plot - note it's a bit ugly",
+    )
+    plot_parser.add_argument(
+        "--extra-kwargs",
+        default="{}",
+        help="Any extra plotting kwargs to use - passed as the string rep of a dict",
+    )
+    arguments = parser.parse_args()
+    return arguments, parser
+
+
+def __main__():
+    arguments, parser = parse_corner_args()
+
+    results_dict = make_results_dict(
+        arguments.posterior_files,
+        arguments.posterior_names,
+        arguments.relative_dir,
+    )
+
+    if arguments.composite_file is not None:
+        ile_points = get_ile_points(arguments.composite_file)
+
+    corner_fig = plot_multiple_RIFT(
+        results_dict,
+        arguments.params_to_plot,
+        ile_points=ile_points,
+        lnL_span_cut=arguments.lnL_span_cut,
+        title=arguments.title,
+        **arguments.extra_kwargs,
+    )
+
+    write_dir = get_suffixed_path(arguments.output_dir)
+    os.makedirs(write_dir)
+    write_altered_config(
+        arguments, parser, os.path.join(write_dir, "modified_config.cfg")
+    )
+    corner_fig.savefig(os.path.join(write_dir, "rift_corner.jpg"))
