@@ -256,17 +256,22 @@ def plot_multiple_RIFT(
     if title is not None:
         figaxes[ndim - 2].set_title(title, size="x-large")
 
+    # Setup color for lines, and linestyles to iterate cyclically
     linestyles = cycle([":", "--", "-.", "-"])
     vline_color = "black"
     for line_label, (params, param_values) in vlines.items():
+        # Get the linestyle to use
         vline_linestyle = next(linestyles)
         xs = []
         for parameter in parameters_to_plot:
             if parameter in params:
+                # If this parameter is one to plot, then grab the corresponding value
                 value_for_param = param_values[params.index(parameter)]
                 xs.append(value_for_param)
             else:
+                # Else use None to not plot on this subaxis
                 xs.append(None)
+        # Overplot and add to lists for legend
         corner.overplot_lines(
             corner_fig, xs, linestyle=vline_linestyle, color=vline_color
         )
@@ -405,25 +410,30 @@ def parse_corner_args(config_path=None):
 
 
 def main():
+    # Standard logging for a main process
     logging.basicConfig(level=logging.INFO)
 
+    # Setup parser
     arguments, parser = parse_corner_args()
 
     arguments.posterior_files = [x.replace("'", "") for x in arguments.posterior_files]
     arguments.params_to_plot = [x.replace("'", "") for x in arguments.params_to_plot]
     arguments.posterior_names = [x.replace("'", "") for x in arguments.posterior_names]
 
+    # Get results from posteriors
     results_dict = make_results_dict(
         arguments.posterior_files,
         arguments.posterior_names,
         arguments.relative_dir,
     )
 
+    # If applicable get composite points
     if arguments.composite_file is not None:
         ile_points = get_ile_points(
             os.path.join(arguments.relative_dir, arguments.composite_file)
         )
 
+    # Do the plotting
     corner_fig = plot_multiple_RIFT(
         results_dict,
         arguments.params_to_plot,
@@ -434,8 +444,10 @@ def main():
         **ast.literal_eval(arguments.extra_kwargs),
     )
 
+    # Make a unique (almost) requested directory to write to
     write_dir = os.path.expanduser(get_suffixed_path(arguments.output_dir))
     os.makedirs(write_dir)
+    # Write things
     write_altered_config(
         arguments,
         parser,
