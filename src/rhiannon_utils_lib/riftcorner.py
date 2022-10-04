@@ -1,8 +1,10 @@
+import ast
 import copy
 import logging
 import os
+from itertools import cycle
 from types import NoneType
-from typing import Dict, List, Union
+from typing import Dict, List, Tuple, Union
 
 import configargparse as cfg
 import corner
@@ -15,7 +17,6 @@ from bilby.gw.conversion import generate_mass_parameters
 from .fileutils import get_suffixed_path, write_altered_config
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 # Map RIFT names to bilby names
 _rift_to_bilby = {
@@ -163,6 +164,7 @@ def plot_multiple_RIFT(
     ile_points: Union[NoneType, pd.DataFrame] = None,
     lnL_span_cut: Union[NoneType, float] = None,
     title: Union[NoneType, str] = None,
+    vlines: Dict[str, Tuple[List[str], List[float]]] = {},
     **kwargs,
 ) -> plt.figure:
     """
@@ -243,12 +245,33 @@ def plot_multiple_RIFT(
 
     ndim = len(parameters_to_plot)
 
-    # Make the legend
     figaxes = corner_fig.get_axes()
-    figaxes[ndim - 1].legend(lines, labels, prop={"size": "x-large"})
+
     # Optionally add a title - tends to be pretty ugly.
     if title is not None:
         figaxes[ndim - 2].set_title(title, size="x-large")
+
+    linestyles = cycle([":", "--", "-.", "-"])
+    vline_color = "black"
+    for line_label, (params, param_values) in vlines.items():
+        vline_linestyle = next(linestyles)
+        xs = []
+        for parameter in parameters_to_plot:
+            if parameter in params:
+                value_for_param = param_values[params.index(parameter)]
+                xs.append(value_for_param)
+            else:
+                xs.append(None)
+        corner.overplot_lines(
+            corner_fig, xs, linestyle=vline_linestyle, color=vline_color
+        )
+        lines.append(
+            mpllines.Line2D([0], [0], color=vline_color, linestyle=vline_linestyle)
+        )
+        labels.append(line_label)
+
+    # Make the legend
+    figaxes[ndim - 1].legend(lines, labels, prop={"size": "x-large"})
 
     # If composite points are provided plot them
     if ile_points is not None:
@@ -298,9 +321,15 @@ def plot_multiple_RIFT(
     return corner_fig
 
 
-def parse_corner_args(config_path):
-    parser = cfg.ArgumentParser()
+def parse_corner_args(config_path=None):
+    if config_path is not None:
+        parser = cfg.ArgumentParser(config_path)
+    else:
+        parser = cfg.ArgumentParser()
 
+    parser.add_argument(
+        "config", is_config_file=True, help="The path to the config file to use"
+    )
     file_parser = parser.add_argument_group(
         title="File Arguments",
         description="Arguments describing paths of files to use, and names for posteriors",
@@ -313,7 +342,7 @@ def parse_corner_args(config_path):
     file_parser.add_argument(
         "--relative-dir",
         type=str,
-        help="The relative directory for all of the posteriors (e.g. the run directory)",
+        help="The relative directory for all of the posteriors (e.g. the run directory) and the composite file",
         default="",
     )
     file_parser.add_argument(
@@ -341,13 +370,13 @@ def parse_corner_args(config_path):
         help="",
     )
     plot_parser.add_argument(
-        "--lnL-span-cut",
+        "--log-l-span-cut",
         type=float,
         default=None,
         help="If passed, then color scale from (max lnL - cut, max lnL), else go min to max",
     )
     plot_parser.add_argument(
-        "--param-to-plot",
+        "--params-to-plot",
         action="append",
         help="Pass multiple times for the parameters to plot on the corner plot",
     )
@@ -355,6 +384,11 @@ def parse_corner_args(config_path):
         "--title",
         default=None,
         help="If passed will put title onto plot - note it's a bit ugly",
+    )
+    plot_parser.add_argument(
+        "--vlines",
+        default="{}",
+        help="A dict of {label:(param, value)} by which to plot vertical lines",
     )
     plot_parser.add_argument(
         "--extra-kwargs",
@@ -365,8 +399,14 @@ def parse_corner_args(config_path):
     return arguments, parser
 
 
-def __main__():
+def main():
+    logging.basicConfig(level=logging.INFO)
+
     arguments, parser = parse_corner_args()
+
+    arguments.posterior_files = [x.replace("'", "") for x in arguments.posterior_files]
+    arguments.params_to_plot = [x.replace("'", "") for x in arguments.params_to_plot]
+    arguments.posterior_names = [x.replace("'", "") for x in arguments.posterior_names]
 
     results_dict = make_results_dict(
         arguments.posterior_files,
@@ -375,20 +415,25 @@ def __main__():
     )
 
     if arguments.composite_file is not None:
-        ile_points = get_ile_points(arguments.composite_file)
+        ile_points = get_ile_points(
+            os.path.join(arguments.relative_dir, arguments.composite_file)
+        )
 
     corner_fig = plot_multiple_RIFT(
         results_dict,
         arguments.params_to_plot,
         ile_points=ile_points,
-        lnL_span_cut=arguments.lnL_span_cut,
+        lnL_span_cut=arguments.log_l_span_cut,
         title=arguments.title,
-        **arguments.extra_kwargs,
+        vlines=ast.literal_eval(arguments.vlines),
+        **ast.literal_eval(arguments.extra_kwargs),
     )
 
-    write_dir = get_suffixed_path(arguments.output_dir)
+    write_dir = os.path.expanduser(get_suffixed_path(arguments.output_dir))
     os.makedirs(write_dir)
     write_altered_config(
-        arguments, parser, os.path.join(write_dir, "modified_config.cfg")
+        arguments,
+        parser,
+        os.path.join(write_dir, "modified_config.cfg"),
     )
     corner_fig.savefig(os.path.join(write_dir, "rift_corner.jpg"))

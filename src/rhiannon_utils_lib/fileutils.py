@@ -1,8 +1,11 @@
 import copy
+import logging
 import os
 from typing import List
 
 import configargparse as cfg
+
+logger = logging.getLogger(__name__)
 
 
 def write_altered_config(
@@ -115,7 +118,7 @@ def get_suffixed_path(
 
     if os.path.exists(os.path.expanduser(file_path)):
         # Get the pieces of the path
-        file_path_split = file_path.split("/")
+        file_path_split = file_path.rstrip("/").split("/")
         # Get the file path, if any, and the file name
         if len(file_path_split) > 1:
             path_base = os.path.join(*file_path_split[:-1])
@@ -130,9 +133,11 @@ def get_suffixed_path(
             path_name_suffix = path_name_split[-1]
             # incrementing
             path_name_suffix = str(int(path_name_suffix) + 1)
-            return os.path.join(path_base, path_name_prefix + path_name_suffix)
+            return get_suffixed_path(
+                os.path.join(path_base, f"{path_name_prefix}_{path_name_suffix}")
+            )
         else:
             # If there isn't a number at the end, we can just stick a 1 on it
-            return os.path.join(path_base, path_name + "_1")
+            return get_suffixed_path(os.path.join(path_base, path_name + "_1"))
     else:
         return file_path
