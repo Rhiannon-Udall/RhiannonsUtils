@@ -185,6 +185,11 @@ def plot_multiple_RIFT(
         If None all grid points are colored, this may make the scale uninformative.
     title : Union[NoneType, str]
         Optionally, the title of the plot.
+    vlines : Dict[str, Tuple[List[str], List[float]]]
+        A dictionary containing lines to overplot.
+        The key is the label for the line.
+        The first element of the tuple is a list of parameters to plot.
+        The second element are the corresponding parameter values.
     """
     # Setup kwargs for plotting - in most cases use Bilby defaults
     defaults_kwargs = dict(
