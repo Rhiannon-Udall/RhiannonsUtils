@@ -64,18 +64,17 @@ _bilby_to_tex = {
 
 
 def get_posterior_dataframe(posterior_file: str) -> pd.DataFrame:
-    """
-    Get the posterior dataframe from a posteriors_samples.dat file.
+    """Get the posterior dataframe from a posteriors_samples.dat file.
     #TODO Make this more flexible - may involve expanding the above.
 
     Parameters
-    ----------
-    posterior_file : str
+    ==========
+    posterior_file: str
         The path to the file to read.
 
     Returns
-    -------
-    df : pd.DataFrame
+    =======
+    df: pd.DataFrame
         The dataframe representing the data in the file
         using bilby names where possible.
     """
@@ -205,6 +204,7 @@ def plot_multiple_RIFT(
         no_fill_contours=True,
         max_n_ticks=3,
         hist_kwargs=dict(density=True),
+        contour_kwargs=dict(linewidths=3),
         hatch_base="/",
     )
     defaults_kwargs.update(kwargs)
@@ -233,6 +233,7 @@ def plot_multiple_RIFT(
         kwargs_to_use["hist_kwargs"]["color"] = kwargs_to_use["hist_kwargs"].get(
             "color", kwargs_to_use["color"]
         )
+        kwargs_to_use["zorder"] = 2
 
         # If it's the first posterior, make the new corner
         if ii == 0:
@@ -273,7 +274,11 @@ def plot_multiple_RIFT(
                 xs.append(None)
         # Overplot and add to lists for legend
         corner.overplot_lines(
-            corner_fig, xs, linestyle=vline_linestyle, color=vline_color
+            corner_fig,
+            xs,
+            linestyle=vline_linestyle,
+            color=vline_color,
+            zorder=1,
         )
         lines.append(
             mpllines.Line2D([0], [0], color=vline_color, linestyle=vline_linestyle)
