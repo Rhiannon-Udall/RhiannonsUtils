@@ -42,22 +42,22 @@ _rift_to_bilby = {
 
 # Map bilby names to latex representations
 _bilby_to_tex = {
-    "mass_1": "$m_1$",
-    "mass_2": "$m_2$",
+    "mass_1": r"$m_1~(M_\odot)$",
+    "mass_2": r"$m_2~(M_\odot)$",
     "spin_1x": r"$S_{1,x}$",
     "spin_1y": r"$S_{1,y}$",
     "spin_1z": r"$S_{1,z}$",
     "spin_2x": r"$S_{2,x}$",
     "spin_2y": r"$S_{2,y}$",
     "spin_2z": r"$S_{2,z}$",
-    "chirp_mass": r"$\mathcal{M}$",
+    "chirp_mass": r"$\mathcal{M}~(M_\odot)$",
     "symmetric_mass_ratio": r"$\eta$",
     "ra": r"$\alpha$",
     "dec": r"$\delta$",
     "phase": r"$\phi$",
     "iota": r"$\iota$",
     "psi": r"$\psi$",
-    "total_mass": r"$M$",
+    "total_mass": r"$M~(M_\odot)$",
     "mass_ratio": r"$q$",
     "luminosity_distance": r"$D_L$",
 }
